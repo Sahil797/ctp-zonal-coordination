@@ -73,7 +73,16 @@ const server = app.listen(config.PORT, config.HOST, () => {
   console.log(`  Uploads:   ${config.UPLOAD_DIR}`);
   console.log(`  Centres: ${data.centres.length} | Sessions: ${data.sessions.length} | Users: ${data.users.length}`);
   if (data.users.some((u) => u.email === config.DEFAULT_ADMIN.email && u.mustChangePassword)) {
-    console.log(`  Default admin: ${config.DEFAULT_ADMIN.email} / ${config.DEFAULT_ADMIN.password}  (change it after first sign-in)`);
+    if (config.DEFAULT_ADMIN.generated) {
+      console.log('  ──────────────────────────────────────────────────────────────');
+      console.log('  CTP_ADMIN_PASSWORD was not set, so one was generated for you.');
+      console.log(`  Admin: ${config.DEFAULT_ADMIN.email} / ${config.DEFAULT_ADMIN.password}`);
+      console.log('  Save it now — sign in and change it. It is not shown again');
+      console.log('  once the password has been changed.');
+      console.log('  ──────────────────────────────────────────────────────────────');
+    } else {
+      console.log(`  Default admin: ${config.DEFAULT_ADMIN.email} / ${config.DEFAULT_ADMIN.password}  (change it after first sign-in)`);
+    }
   }
   console.log('');
 });

@@ -70,7 +70,12 @@ See `.env.example` for the full list. The ones that matter in production:
 | `CTP_DATA_DIR` | a path on the persistent disk | Survives restarts |
 | `CTP_UPLOAD_DIR` | a path on the persistent disk | Survives restarts |
 | `CTP_ADMIN_EMAIL` | your real admin address | Seeds the first admin account |
-| `CTP_ADMIN_PASSWORD` | a strong password | **Change this from `Ctp@2026`** |
+| `CTP_ADMIN_PASSWORD` | a strong password | Seeds the first admin. **Never left at a default** — see below |
+
+> **About the admin password.** The source is public, so there is deliberately *no* usable default
+> in production. `Ctp@2026` only applies when `NODE_ENV` is not `production`. If you deploy without
+> setting `CTP_ADMIN_PASSWORD`, the app generates a random one and prints it **once** to the startup
+> log — read it from the host's log stream, sign in, and change it.
 
 `PORT` is injected by the host automatically — do not set it yourself.
 
@@ -245,7 +250,7 @@ Point `ctp.yourdomain.org` at the app, and link to that from Google Sites instea
 
 ## Production checklist
 
-- [ ] `CTP_ADMIN_PASSWORD` changed from the default `Ctp@2026`
+- [ ] `CTP_ADMIN_PASSWORD` set explicitly to a strong value (never the dev default `Ctp@2026`)
 - [ ] `NODE_ENV=production` set
 - [ ] `CTP_DATA_DIR` and `CTP_UPLOAD_DIR` point at a persistent disk
 - [ ] HTTPS enforced (Azure: `--https-only true`; Render: on by default)

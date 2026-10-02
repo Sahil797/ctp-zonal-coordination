@@ -1,5 +1,6 @@
 'use strict';
 const path = require('path');
+const crypto = require('crypto');
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -12,6 +13,13 @@ const dir = (envValue, fallback) => (envValue ? path.resolve(envValue) : fallbac
 // a mounted disk (Render) or a persisted path such as /home/data (Azure App Service).
 const DATA_DIR = dir(process.env.CTP_DATA_DIR, path.join(ROOT, 'data'));
 const UPLOAD_DIR = dir(process.env.CTP_UPLOAD_DIR, path.join(ROOT, 'uploads'));
+
+// The source is public, so a fixed fallback password would be a published credential. It is only
+// ever used for local development; a production deploy that forgets CTP_ADMIN_PASSWORD gets a
+// random one printed to the startup log instead of a guessable default.
+const DEV_ADMIN_PASSWORD = 'Ctp@2026';
+const adminPassword = process.env.CTP_ADMIN_PASSWORD
+  || (IS_PRODUCTION ? crypto.randomBytes(12).toString('base64url') : DEV_ADMIN_PASSWORD);
 
 module.exports = {
   ROOT,
@@ -33,6 +41,7 @@ module.exports = {
   DEFAULT_ADMIN: {
     name: process.env.CTP_ADMIN_NAME || 'CTP National Administrator',
     email: (process.env.CTP_ADMIN_EMAIL || 'admin@ctp.org').toLowerCase(),
-    password: process.env.CTP_ADMIN_PASSWORD || 'Ctp@2026'
+    password: adminPassword,
+    generated: !process.env.CTP_ADMIN_PASSWORD && IS_PRODUCTION
   }
 };

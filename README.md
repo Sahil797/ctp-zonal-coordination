@@ -18,7 +18,7 @@ npm start
 
 Open <http://127.0.0.1:5090>
 
-**Default administrator**
+**Default administrator** (local development only)
 
 | | |
 |---|---|
@@ -26,6 +26,10 @@ Open <http://127.0.0.1:5090>
 | Password | `Ctp@2026` |
 
 > Change this password immediately from **My account → Change password**.
+>
+> This fixed default applies **only when `NODE_ENV` is not `production`**. In production the app
+> refuses to use a published password: set `CTP_ADMIN_PASSWORD`, or the app generates a random one
+> and prints it to the startup log on first boot. See [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 To run on a different port: `set CTP_PORT=6000` (PowerShell: `$env:CTP_PORT=6000`) before `npm start`.
 
