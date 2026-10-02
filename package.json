@@ -1,0 +1,21 @@
+{
+  "name": "ctp-zonal-coordination",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Computer Training Program (CTP) Zonal Coordination - centralised centre directory, session tracking, certificate reflection and enrollment portal.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "reset": "node server/reset.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "leaflet": "^1.9.4",
+    "multer": "^2.0.2",
+    "xlsx": "^0.18.5"
+  }
+}

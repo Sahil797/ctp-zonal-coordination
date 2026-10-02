@@ -1,0 +1,28 @@
+# Render Blueprint — deploy with: New > Blueprint, point it at this repo.
+# The disk is what keeps data/ and uploads/ alive across deploys and restarts.
+# Disks require a paid instance type; on the free plan every restart wipes the database.
+services:
+  - type: web
+    name: ctp-zonal-coordination
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    disk:
+      name: ctp-storage
+      mountPath: /var/ctp
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CTP_DATA_DIR
+        value: /var/ctp/data
+      - key: CTP_UPLOAD_DIR
+        value: /var/ctp/uploads
+      # Set these in the Render dashboard before the first boot — they seed the admin account.
+      - key: CTP_ADMIN_EMAIL
+        sync: false
+      - key: CTP_ADMIN_PASSWORD
+        sync: false
