@@ -2,6 +2,7 @@
   "name": "ctp-zonal-coordination",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Computer Training Program (CTP) Zonal Coordination - centralised centre directory, session tracking, certificate reflection and enrollment portal.",
   "main": "server.js",
   "scripts": {

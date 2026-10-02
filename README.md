@@ -213,6 +213,7 @@ CTP-Zonal-Coordination/
 ├── render.yaml            Render deployment blueprint (with persistent disk)
 ├── .env.example           every supported environment variable
 ├── DEPLOYMENT.md          Azure / Render / Google Sites hosting guide
+├── LICENSE                MIT
 └── smoke-test.ps1         123-assertion end-to-end test
 ```
 
@@ -272,3 +273,13 @@ Short version:
 - Map tiles come from OpenStreetMap and need internet. The **Schematic** mode is fully offline.
 - The schematic outline is **indicative only** and is not an authoritative depiction of boundaries.
 - Centres without exact coordinates are plotted at their state centroid and drawn faded.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE) — free to use, modify and redistribute, including
+commercially, provided the copyright notice is retained.
+
+Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
+[Leaflet](https://leafletjs.com/) is BSD-2-Clause.
