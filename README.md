@@ -290,6 +290,10 @@ Short version:
 - Map tiles come from OpenStreetMap and need internet. The **Schematic** mode is fully offline.
 - The schematic outline is **indicative only** and is not an authoritative depiction of boundaries.
 - Centres without exact coordinates are plotted at their state centroid and drawn faded.
+- **SheetJS is installed from `cdn.sheetjs.com`, not the npm registry.** The registry copy is
+  abandoned at 0.18.5 and carries unpatched prototype-pollution and ReDoS advisories; the CDN build
+  is the one upstream maintains. `package-lock.json` pins a `sha512` integrity hash, so `npm ci`
+  verifies the download. Please do not "fix" this back to `npm install xlsx`.
 
 ---
 
