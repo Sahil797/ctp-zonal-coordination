@@ -74,7 +74,11 @@ function banner() {
   console.log(`  Uploads:   ${store.usingDatabase() ? 'Postgres (ctp_blobs)' : config.UPLOAD_DIR}`);
   console.log(`  Centres: ${data.centres.length} | Sessions: ${data.sessions.length} | Users: ${data.users.length}`);
   if (data.users.some((u) => u.email === config.DEFAULT_ADMIN.email && u.mustChangePassword)) {
-    if (config.DEFAULT_ADMIN.generated) {
+    // The configured password is only ever applied while seeding. On an existing database the
+    // stored one still governs, so printing the configured value would be an outright lie.
+    if (!store.wasSeeded()) {
+      console.log(`  Admin: ${config.DEFAULT_ADMIN.email}  (existing account — its current password still applies)`);
+    } else if (config.DEFAULT_ADMIN.generated) {
       console.log('  ──────────────────────────────────────────────────────────────');
       console.log('  CTP_ADMIN_PASSWORD was not set, so one was generated for you.');
       console.log(`  Admin: ${config.DEFAULT_ADMIN.email} / ${config.DEFAULT_ADMIN.password}`);

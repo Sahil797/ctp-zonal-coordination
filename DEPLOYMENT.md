@@ -81,6 +81,11 @@ See `.env.example` for the full list. The ones that matter in production:
 > in production. `Ctp@2026` only applies when `NODE_ENV` is not `production`. If you deploy without
 > setting `CTP_ADMIN_PASSWORD`, the app generates a random one and prints it **once** to the startup
 > log — read it from the host's log stream, sign in, and change it.
+>
+> It only ever applies **while the database is being seeded**. Once the admin account exists, the
+> stored password governs and `CTP_ADMIN_PASSWORD` is ignored, so editing it in the dashboard later
+> changes nothing — the startup banner will say the account already exists. To rotate it, sign in
+> and change it from **Account**; if it has been lost, reset the database or update the user row.
 
 `PORT` is injected by the host automatically — do not set it yourself.
 

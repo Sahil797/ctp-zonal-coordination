@@ -24,6 +24,7 @@ let writeQueue = Promise.resolve();
 let dirty = false;
 let rev = 0;
 let initialised = false;
+let seededFresh = false;
 
 const usingDatabase = () => database.isEnabled();
 
@@ -100,6 +101,7 @@ function loadFromFile() {
   }
   const fresh = normalise(seed.initialData());
   writeFileNow(fresh);
+  seededFresh = true;
   console.log('[store] seeded a fresh database at', config.DATA_FILE);
   return fresh;
 }
@@ -131,6 +133,7 @@ async function loadFromDatabase() {
   );
   if (inserted.rows.length) {
     rev = 1;
+    seededFresh = true;
     console.log('[store] seeded a fresh database in Postgres');
     return fresh;
   }
@@ -276,7 +279,16 @@ function describe() {
   return usingDatabase() ? 'Postgres (DATABASE_URL)' : config.DATA_FILE;
 }
 
+/**
+ * True only when this boot created the database. The seed is the one and only moment the
+ * configured administrator password is applied, so the banner uses this to avoid advertising
+ * credentials that an already-populated database would reject.
+ */
+function wasSeeded() {
+  return seededFresh;
+}
+
 module.exports = {
   db, save, update, backup, logActivity, ensureDirs,
-  init, reset, describe, usingDatabase
+  init, reset, describe, usingDatabase, wasSeeded
 };
