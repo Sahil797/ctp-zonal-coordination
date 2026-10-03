@@ -26,13 +26,31 @@ function sslOption(url) {
   return { rejectUnauthorized: false };
 }
 
+/**
+ * TLS is decided by sslOption() above, so the libpq-style parameters that providers bake into their
+ * connection strings are removed first. Neon ships "sslmode=require&channel_binding=require"; the
+ * driver ignores channel_binding and warns that its reading of sslmode will change in pg 9, which
+ * would otherwise print a security warning on every boot.
+ */
+function normaliseUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete('sslmode');
+    parsed.searchParams.delete('channel_binding');
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 function getPool() {
   if (!isEnabled()) throw new Error('DATABASE_URL is not set.');
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
+    const raw = process.env.DATABASE_URL;
+    const ssl = sslOption(raw);
     pool = new Pool({
-      connectionString,
-      ssl: sslOption(connectionString),
+      connectionString: normaliseUrl(raw),
+      ssl,
       max: Number(process.env.PGPOOL_MAX || 4),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 15000
