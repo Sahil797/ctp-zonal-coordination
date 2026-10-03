@@ -7,16 +7,18 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
-    "reset": "node server/reset.js"
+    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "local": "node --env-file-if-exists=.env server.js",
+    "reset": "node --env-file-if-exists=.env server/reset.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.12"
   },
   "dependencies": {
     "express": "^4.21.2",
     "leaflet": "^1.9.4",
     "multer": "^2.0.2",
+    "pg": "^8.23.0",
     "xlsx": "^0.18.5"
   }
 }

@@ -3,6 +3,7 @@ const path = require('path');
 const express = require('express');
 const config = require('./server/config');
 const store = require('./server/store');
+const database = require('./server/db');
 const auth = require('./server/auth');
 const { HttpError } = require('./server/util');
 
@@ -61,16 +62,16 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: message, details: err.details });
 });
 
-store.db();
+let server = null;
 
-const server = app.listen(config.PORT, config.HOST, () => {
+function banner() {
   const data = store.db();
   const shown = config.HOST === '0.0.0.0' || config.HOST === '::' ? '127.0.0.1' : config.HOST;
   console.log('');
   console.log('  CTP Zonal Coordination');
   console.log(`  → http://${shown}:${config.PORT}   (bound on ${config.HOST})`);
-  console.log(`  Data file: ${config.DATA_FILE}`);
-  console.log(`  Uploads:   ${config.UPLOAD_DIR}`);
+  console.log(`  Storage:   ${store.describe()}`);
+  console.log(`  Uploads:   ${store.usingDatabase() ? 'Postgres (ctp_blobs)' : config.UPLOAD_DIR}`);
   console.log(`  Centres: ${data.centres.length} | Sessions: ${data.sessions.length} | Users: ${data.users.length}`);
   if (data.users.some((u) => u.email === config.DEFAULT_ADMIN.email && u.mustChangePassword)) {
     if (config.DEFAULT_ADMIN.generated) {
@@ -85,11 +86,36 @@ const server = app.listen(config.PORT, config.HOST, () => {
     }
   }
   console.log('');
+}
+
+// Postgres cannot be read synchronously, so the database is loaded before the first request is
+// ever accepted. Failing here is deliberate: serving an empty directory would look like data loss.
+async function start() {
+  await store.init();
+  server = app.listen(config.PORT, config.HOST, banner);
+}
+
+start().catch((err) => {
+  console.error('');
+  console.error('  Could not start CTP Zonal Coordination.');
+  console.error(`  ${err.message}`);
+  if (store.usingDatabase()) {
+    console.error('  Check that DATABASE_URL is correct and the database is reachable.');
+  }
+  console.error('');
+  process.exit(1);
 });
 
+let shuttingDown = false;
 function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`\n${signal} received — saving data and shutting down.`);
-  store.save().finally(() => server.close(() => process.exit(0)));
+  const done = () => database.close().finally(() => process.exit(0));
+  store.save()
+    .catch(() => {})
+    .then(() => (server ? server.close(done) : done()));
+  setTimeout(() => process.exit(0), 10000).unref();
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));

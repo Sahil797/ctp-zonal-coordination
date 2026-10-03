@@ -32,33 +32,37 @@ the real app in a new tab. See [Google Sites landing page](#google-sites-landing
 
 ### 1. Put the project in a GitHub repository
 
-Both hosts below deploy from GitHub.
+Both hosts below deploy from GitHub. If the repository does not exist yet:
 
 ```powershell
 cd C:\Users\sahilsharma\Projects\CTP-Zonal-Coordination
-git init
+git init -b main
 git add .
 git commit -m "CTP Zonal Coordination portal"
-gh repo create ctp-zonal-coordination --private --source . --push
+gh repo create ctp-zonal-coordination --public --source . --push
 ```
 
 `.gitignore` already excludes `node_modules/`, `data/*.json`, `data/backups/`, `uploads/` and
 `.env`, so **no live data or credentials are committed**.
 
-### 2. Understand the storage rule
+### 2. Choose where the data lives
 
-The app keeps everything in two folders:
+The app keeps its entire database as **one JSON document**, plus the uploaded certificate
+spreadsheets. There are two ways to persist that, and picking the right one is the single most
+important deployment decision:
 
-- `data/ctp-data.json` — every centre, session, user and notice
-- `uploads/` — the certificate spreadsheets
+| Mode | When to use it | How |
+|---|---|---|
+| **File** (default) | Any host with a real disk or a mounted volume | Leave `DATABASE_URL` unset, point `CTP_DATA_DIR` / `CTP_UPLOAD_DIR` at the persistent path |
+| **Postgres** | Any host with an **ephemeral filesystem** | Set `DATABASE_URL` — the directory, logins *and* uploaded sheets all move into the database |
 
-On both hosts the application folder is **wiped on every deploy and restart**. You must point the
-app at a persistent disk using these environment variables, or you will lose all your data:
+> **The rule:** if the host wipes the filesystem when the app restarts — which includes Render's
+> free plan, Cloud Run, Vercel and Fly machines without a volume — you **must** set `DATABASE_URL`.
+> Otherwise every restart silently resets the portal to demo data.
 
-| Variable | Purpose |
-|---|---|
-| `CTP_DATA_DIR` | Where `ctp-data.json` and `backups/` live |
-| `CTP_UPLOAD_DIR` | Where uploaded certificate sheets live |
+In Postgres mode the app creates three tables on first boot: `ctp_state` (the document),
+`ctp_blobs` (uploaded files) and `ctp_backups` (snapshots taken before destructive operations).
+No migration step is needed.
 
 ### 3. Environment variables
 
@@ -67,8 +71,9 @@ See `.env.example` for the full list. The ones that matter in production:
 | Variable | Set it to | Why |
 |---|---|---|
 | `NODE_ENV` | `production` | Masks internal errors, binds `0.0.0.0`, turns on `Secure` cookies |
-| `CTP_DATA_DIR` | a path on the persistent disk | Survives restarts |
-| `CTP_UPLOAD_DIR` | a path on the persistent disk | Survives restarts |
+| `DATABASE_URL` | a Postgres connection string | **Required on any host without a persistent disk** |
+| `CTP_DATA_DIR` | a path on the persistent disk | File mode only — ignored when `DATABASE_URL` is set |
+| `CTP_UPLOAD_DIR` | a path on the persistent disk | File mode only — ignored when `DATABASE_URL` is set |
 | `CTP_ADMIN_EMAIL` | your real admin address | Seeds the first admin account |
 | `CTP_ADMIN_PASSWORD` | a strong password | Seeds the first admin. **Never left at a default** — see below |
 
@@ -81,13 +86,93 @@ See `.env.example` for the full list. The ones that matter in production:
 
 ---
 
-## Option A — Azure App Service
+## Which host? A cost comparison
+
+| Host | Monthly cost | Persistent data | Custom domain | Catch |
+|---|---|---|---|---|
+| **Render free + Neon Postgres** | **₹0** | ✅ in Postgres | ✗ | Sleeps after 15 min idle (~50 s first load) |
+| Azure App Service **F1 free** | **₹0** | ✅ `/home` | ✗ | 60 CPU-min/day; needs a pay-as-you-go account after 30 days |
+| Render Starter + disk | ~$7 | ✅ on disk | ✅ | — |
+| Azure App Service **B1** | ~₹1,000 | ✅ `/home` | ✅ | — |
+
+**Render free + Neon is the only option that costs nothing and never asks for a card.** It is the
+recommended starting point; you can move to a paid plan later without changing any code.
+
+> **Careful with "free" Azure.** An Azure free account is disabled after its 30-day credit expires
+> unless you convert it to pay-as-you-go. The F1 tier itself stays free forever, but you end up with
+> a live billing account and a card on file.
+
+---
+
+## Option A — Render free + Neon Postgres (₹0)
+
+Render's free plan runs the Node server; Neon stores the data. Neither needs a credit card, and
+neither expires. `render.yaml` in this repo is already configured for exactly this.
+
+**Limits to know:** the service sleeps after 15 minutes of inactivity, so the first visit afterwards
+takes roughly 30–60 seconds to load. Neon's free database allows 0.5 GB, which is far more than the
+directory needs — the practical limit is uploaded certificate sheets, at up to 10 MB each.
+
+### 1. Create the database
+
+1. Go to [neon.com](https://neon.com) and sign up — **Continue with GitHub** is quickest.
+2. Create a project named `ctp-zonal-coordination` in region **AWS ap-southeast-1 (Singapore)**.
+3. On the dashboard, copy the **Connection string** with **Pooled connection** switched on. It looks
+   like `postgresql://user:password@ep-xxxx-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`.
+
+Keep that string secret — it grants full access to the database.
+
+### 2. Test it locally first
+
+```powershell
+cd C:\Users\sahilsharma\Projects\CTP-Zonal-Coordination
+Copy-Item .env.example .env       # .env is git-ignored
+notepad .env                      # paste the string into DATABASE_URL, save
+npm run local
+```
+
+The banner should print `Storage: Postgres (DATABASE_URL)`. Visit <http://127.0.0.1:5090>, add a
+centre, stop the server, start it again — the centre should still be there.
+
+### 3. Deploy
+
+1. Sign up at [render.com](https://render.com) with the same GitHub account.
+2. **New → Blueprint**, select the repository. Render reads `render.yaml`.
+3. Fill in the values it asks for:
+   - `DATABASE_URL` — the Neon string from step 1
+   - `CTP_ADMIN_EMAIL` — your admin address
+   - `CTP_ADMIN_PASSWORD` — a strong password (leave blank and a random one is printed to the log)
+4. **Apply**. The build runs `npm ci`, then `npm start`.
+5. Open `https://ctp-zonal-coordination.onrender.com`. HTTPS is automatic.
+
+### 4. Confirm the data really survives
+
+This is the whole point of the exercise, so verify it:
+
+1. Sign in and add a centre.
+2. Render dashboard → **Manual Deploy → Clear build cache & deploy**.
+3. When it comes back, the centre is still listed.
+
+### Redeploying
+
+Push to your default branch — Render rebuilds automatically.
+
+### Keeping it awake (optional)
+
+A free [UptimeRobot](https://uptimerobot.com) monitor pinging `/api/health` every 5 minutes keeps
+the service warm during the day and removes the cold start for visitors.
+
+---
+
+## Option B — Azure App Service
 
 Best fit if you are already in the Microsoft ecosystem. `/home` is a persistent, backed-up share, so
 you get durable storage with no extra add-on.
 
-**Cost:** the B1 plan is roughly ₹1,000 / month. The F1 free plan technically runs but sleeps, has a
-60-minute daily CPU quota and is not suitable for a real portal.
+**Cost:** the B1 plan is roughly ₹1,000 / month and supports a custom domain. The **F1 free** plan
+also works — `/home` is persistent on every tier — but it is capped at 60 CPU-minutes per day, has
+no SLA and no custom domain, and an Azure free account must be converted to pay-as-you-go once its
+30-day credit expires or the app is switched off.
 
 ### Steps
 
@@ -162,19 +247,30 @@ az webapp ssh --name ctp-zonal-coordination --resource-group ctp-rg
 
 ---
 
-## Option B — Render
+## Option C — Render on a paid plan (with a disk)
 
-The quickest route. `render.yaml` in this repo is a ready-made blueprint.
+If you would rather keep the simple JSON-file storage and avoid Postgres entirely, pay for a
+**Starter** instance (~$7/month) plus a **1 GB disk** (~$0.25/month). This also removes the
+15-minute sleep.
 
-**Cost:** the free plan works for a demo but **has no disk** — the database resets on every restart
-and free services sleep after 15 minutes of inactivity. For real use pick the **Starter** instance
-(~$7/month) plus a **1 GB disk** (~$0.25/month).
+To do this, edit `render.yaml`: change `plan: free` to `plan: starter`, drop `DATABASE_URL`, and add
+
+```yaml
+    disk:
+      name: ctp-storage
+      mountPath: /var/ctp
+      sizeGB: 1
+    envVars:
+      - key: CTP_DATA_DIR
+        value: /var/ctp/data
+      - key: CTP_UPLOAD_DIR
+        value: /var/ctp/uploads
+```
 
 ### Steps
 
 1. Sign up at [render.com](https://render.com) and connect your GitHub account.
-2. Click **New → Blueprint** and select your repository. Render reads `render.yaml` and proposes a
-   web service with a 1 GB disk mounted at `/var/ctp`.
+2. Click **New → Blueprint** and select your repository.
 3. When prompted, fill in the two secret values:
    - `CTP_ADMIN_EMAIL` — your admin address
    - `CTP_ADMIN_PASSWORD` — a strong password
@@ -252,7 +348,8 @@ Point `ctp.yourdomain.org` at the app, and link to that from Google Sites instea
 
 - [ ] `CTP_ADMIN_PASSWORD` set explicitly to a strong value (never the dev default `Ctp@2026`)
 - [ ] `NODE_ENV=production` set
-- [ ] `CTP_DATA_DIR` and `CTP_UPLOAD_DIR` point at a persistent disk
+- [ ] Storage chosen deliberately: **either** `DATABASE_URL` **or** `CTP_DATA_DIR` + `CTP_UPLOAD_DIR` on a real disk
+- [ ] **Verified data survives a redeploy** — add a centre, redeploy, confirm it is still there
 - [ ] HTTPS enforced (Azure: `--https-only true`; Render: on by default)
 - [ ] Signed in once and changed the admin password in the UI
 - [ ] Demo data cleared via **Admin → Overview → Clear demo data** before going live
@@ -267,7 +364,8 @@ Point `ctp.yourdomain.org` at the app, and link to that from Google Sites instea
 |---|---|
 | Google Sites | Static page builder, no server |
 | GitHub Pages | Static files only |
-| Netlify / Vercel (static) | No long-running server or writable disk |
-| Google Cloud Run / AWS Lambda | Filesystem is ephemeral and per-instance — the JSON store would be lost or diverge between instances |
+| Netlify / Vercel (static hosting) | No long-running server process |
 
-The last row is fixable, but only by replacing the JSON file store with a real database.
+Hosts with an **ephemeral filesystem** — Render free, Google Cloud Run, Vercel functions, Fly
+machines without a volume — *do* work, but only with `DATABASE_URL` set. Without it they will
+appear to work and then quietly lose every change when the instance restarts.

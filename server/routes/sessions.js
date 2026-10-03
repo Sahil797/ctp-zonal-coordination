@@ -1,28 +1,21 @@
 'use strict';
-const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const config = require('../config');
 const store = require('../store');
+const blobs = require('../blobs');
 const auth = require('../auth');
 const models = require('../models');
 const { wrap, fail, str, id, now, toCsv } = require('../util');
 
 const router = express.Router();
 
+// Files are received into memory and then handed to the storage layer, which writes them to disk
+// locally or to Postgres when the host has an ephemeral filesystem. multer caps them at 10 MB.
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => {
-      fs.mkdirSync(config.UPLOAD_DIR, { recursive: true });
-      cb(null, config.UPLOAD_DIR);
-    },
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`);
-    }
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: config.MAX_UPLOAD_BYTES, files: 1 },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -153,13 +146,14 @@ router.put('/:id', auth.requireAuth, wrap((req, res) => {
   res.json({ ok: true, session: updated });
 }));
 
-router.delete('/:id', auth.requireAuth, wrap((req, res) => {
+router.delete('/:id', auth.requireAuth, wrap(async (req, res) => {
   const session = sessionById(req.params.id);
   assertCanEdit(req, session);
+  const attachments = (session.reflection && session.reflection.attachments) || [];
   store.update((d) => {
-    (session.reflection.attachments || []).forEach((a) => removeFile(a.storedName));
     d.sessions = d.sessions.filter((s) => s.id !== session.id);
   });
+  await Promise.all(attachments.map((a) => blobs.remove(a.storedName)));
   store.logActivity(req.user.email, 'session.deleted', session.title);
   res.json({ ok: true });
 }));
@@ -180,16 +174,10 @@ router.put('/:id/reflection', auth.requireAuth, wrap((req, res) => {
   res.json({ ok: true, reflection });
 }));
 
-function removeFile(storedName) {
-  if (!storedName) return;
-  const target = path.join(config.UPLOAD_DIR, path.basename(storedName));
-  fs.promises.unlink(target).catch(() => {});
-}
-
 /** Parses an uploaded sheet so the UI can preview rows without re-reading the file. */
-function parseSheet(filePath, ext) {
+function parseSheet(buffer, ext) {
   if (ext === '.pdf') return { rows: 0, columns: [], preview: [] };
-  const workbook = XLSX.readFile(filePath, { cellDates: true });
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) return { rows: 0, columns: [], preview: [] };
   const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '', raw: false });
@@ -205,7 +193,7 @@ function parseSheet(filePath, ext) {
   };
 }
 
-router.post('/:id/reflection/attachments', auth.requireAuth, upload.single('file'), wrap((req, res) => {
+router.post('/:id/reflection/attachments', auth.requireAuth, upload.single('file'), wrap(async (req, res) => {
   const session = sessionById(req.params.id);
   assertCanEdit(req, session);
   if (!req.file) fail(400, 'Please choose a file to upload.');
@@ -214,16 +202,18 @@ router.post('/:id/reflection/attachments', auth.requireAuth, upload.single('file
   let parsed = { rows: 0, columns: [], preview: [] };
   let parseError = '';
   try {
-    parsed = parseSheet(req.file.path, ext);
+    parsed = parseSheet(req.file.buffer, ext);
   } catch (err) {
     parseError = `Could not read the sheet: ${err.message}`;
   }
 
+  const stored = await blobs.put(req.file.buffer, req.file.originalname);
+
   const attachment = {
     id: id('att'),
     originalName: req.file.originalname,
-    storedName: req.file.filename,
-    size: req.file.size,
+    storedName: stored.storedName,
+    size: stored.size,
     kind: ext.replace('.', ''),
     rows: parsed.rows,
     columns: parsed.columns,
@@ -246,19 +236,22 @@ router.post('/:id/reflection/attachments', auth.requireAuth, upload.single('file
   res.status(201).json({ ok: true, attachment, reflection: session.reflection });
 }));
 
-router.get('/:id/reflection/attachments/:attachmentId', auth.requireAuth, wrap((req, res) => {
+router.get('/:id/reflection/attachments/:attachmentId', auth.requireAuth, wrap(async (req, res) => {
   const session = sessionById(req.params.id);
   if (req.user.role !== 'admin' && session.centreId !== req.user.centreId) {
     fail(403, 'You can only download files from your own centre.');
   }
   const attachment = (session.reflection.attachments || []).find((a) => a.id === req.params.attachmentId);
   if (!attachment) fail(404, 'File not found.');
-  const filePath = path.join(config.UPLOAD_DIR, path.basename(attachment.storedName));
-  if (!fs.existsSync(filePath)) fail(410, 'The stored file is no longer available on disk.');
-  res.download(filePath, attachment.originalName);
+  const bytes = await blobs.get(attachment.storedName);
+  if (!bytes) fail(410, 'The stored file is no longer available.');
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition',
+    `attachment; filename="${encodeURIComponent(attachment.originalName).replace(/"/g, '')}"`);
+  res.send(bytes);
 }));
 
-router.delete('/:id/reflection/attachments/:attachmentId', auth.requireAuth, wrap((req, res) => {
+router.delete('/:id/reflection/attachments/:attachmentId', auth.requireAuth, wrap(async (req, res) => {
   const session = sessionById(req.params.id);
   assertCanEdit(req, session);
   const attachment = (session.reflection.attachments || []).find((a) => a.id === req.params.attachmentId);
@@ -267,7 +260,7 @@ router.delete('/:id/reflection/attachments/:attachmentId', auth.requireAuth, wra
     session.reflection.attachments = session.reflection.attachments.filter((a) => a.id !== attachment.id);
     session.updatedAt = now();
   });
-  removeFile(attachment.storedName);
+  await blobs.remove(attachment.storedName);
   res.json({ ok: true });
 }));
 

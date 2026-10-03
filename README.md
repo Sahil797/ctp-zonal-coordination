@@ -189,7 +189,9 @@ CTP-Zonal-Coordination/
 ├── server.js              Express entry point
 ├── server/
 │   ├── config.js          port, paths, limits, default admin
-│   ├── store.js           JSON persistence (atomic writes + backups)
+│   ├── store.js           persistence: JSON file or Postgres, chosen at start-up
+│   ├── db.js              Postgres pool + schema (only when DATABASE_URL is set)
+│   ├── blobs.js           uploaded sheets → disk or Postgres
 │   ├── seed.js            first-run data and password hashing
 │   ├── auth.js            scrypt passwords, cookie sessions
 │   ├── models.js          validation / normalisation / public projections
@@ -210,9 +212,10 @@ CTP-Zonal-Coordination/
 │                          account, dashboard, sessions, admin
 ├── data/                  ctp-data.json  (your live data)  + backups/
 ├── uploads/               certificate sheets
-├── render.yaml            Render deployment blueprint (with persistent disk)
+├── render.yaml            Render blueprint (free plan + Postgres)
 ├── .env.example           every supported environment variable
-├── DEPLOYMENT.md          Azure / Render / Google Sites hosting guide
+├── .node-version          Node version pin for the host
+├── DEPLOYMENT.md          free / Azure / Render / Google Sites hosting guide
 ├── LICENSE                MIT
 └── smoke-test.ps1         123-assertion end-to-end test
 ```
@@ -221,14 +224,19 @@ CTP-Zonal-Coordination/
 
 ## Data, backup and reset
 
-Everything lives in **`data/ctp-data.json`**; uploaded certificate sheets live in **`uploads/`**.
-Writes are atomic (temp file + rename) and serialised, so the file is never left half-written.
+By default everything lives in **`data/ctp-data.json`**, and uploaded certificate sheets live in
+**`uploads/`**. Writes are atomic (temp file + rename) and serialised, so the file is never left
+half-written.
+
+Set **`DATABASE_URL`** and the same data moves into Postgres instead — `ctp_state` holds the
+document, `ctp_blobs` the uploaded files, `ctp_backups` the snapshots. Nothing else changes; the
+app picks the backend automatically at start-up and prints which one it used.
 
 | Task | How |
 |---|---|
-| Back up | Admin → **⬇ Backup**, or just copy `data/` and `uploads/` |
+| Back up | Admin → **⬇ Backup**, or copy `data/` and `uploads/` |
 | Restore | Stop the server, put the file back as `data/ctp-data.json`, start again |
-| Start over | `npm run reset` (the old file is moved to `data/backups/` first) |
+| Start over | `npm run reset` (the previous copy is saved first, to `data/backups/` or `ctp_backups`) |
 
 A corrupt `data/ctp-data.json` is automatically quarantined into `data/backups/` and re-seeded, so
 the app always starts.
@@ -257,14 +265,23 @@ Short version:
 
 - **Google Sites cannot host this app** — it is a static page builder with no server, no filesystem
   and no way to run Node. Use it as a landing page that *links* to the live app instead.
-- Recommended hosts: **Azure App Service** (persistent `/home`, ~₹1,000/mo) or **Render**
-  (`render.yaml` blueprint included; needs a paid disk for durable data).
-- Set `NODE_ENV=production`, point `CTP_DATA_DIR` / `CTP_UPLOAD_DIR` at a **persistent disk**, and
-  change `CTP_ADMIN_PASSWORD`. See [`.env.example`](.env.example) for every variable.
+- **It can be hosted for ₹0.** Render's free plan runs the server and a free
+  [Neon](https://neon.com) Postgres database stores the data — neither needs a credit card.
+  `render.yaml` is already configured for this. The trade-off is that the service sleeps after
+  15 minutes idle, so the first visit afterwards takes around a minute.
+- **Pick your storage deliberately** — this is the one decision that can lose data:
+
+  | Host filesystem | What to set |
+  |---|---|
+  | Persistent disk (Azure `/home`, a Render disk, your own server) | `CTP_DATA_DIR` + `CTP_UPLOAD_DIR` |
+  | **Ephemeral** (Render free, Cloud Run, Vercel) | **`DATABASE_URL`** — required, or every restart resets the portal |
+
+  With `DATABASE_URL` set, the directory, logins *and* uploaded certificate sheets all live in
+  Postgres; the app creates its own tables on first boot.
+- Also set `NODE_ENV=production` and `CTP_ADMIN_PASSWORD`. See [`.env.example`](.env.example) for
+  every variable, and use `npm run local` to load a `.env` file while testing.
 - `PORT` is injected by the host and takes precedence over `CTP_PORT`; in production the app binds
   `0.0.0.0` and sets `Secure` on the session cookie automatically.
-- If you later outgrow the JSON file, `server/store.js` is the single place that touches storage —
-  swap it for SQLite or Postgres without changing any route.
 
 ---
 

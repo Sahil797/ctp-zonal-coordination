@@ -4,12 +4,31 @@ const path = require('path');
 const config = require('./config');
 const seed = require('./seed');
 const geo = require('./geo');
+const database = require('./db');
+
+/**
+ * The whole database is a single JSON document held in memory. Routes read it synchronously with
+ * db() and mutate it through update(); persistence happens afterwards on a serialised queue.
+ *
+ * Two backends implement that persistence:
+ *   - file      a JSON file on disk (the default, and what local development uses)
+ *   - postgres  one JSONB row, used when DATABASE_URL is set, because hosts such as Render's free
+ *               plan wipe the filesystem on every restart and deploy
+ *
+ * Postgres cannot be read synchronously, so init() must be awaited during start-up. Once it has
+ * resolved, the public API behaves exactly as it did when a file was the only backend.
+ */
 
 let cache = null;
 let writeQueue = Promise.resolve();
 let dirty = false;
+let rev = 0;
+let initialised = false;
+
+const usingDatabase = () => database.isEnabled();
 
 function ensureDirs() {
+  if (usingDatabase()) return;
   for (const dir of [config.DATA_DIR, config.BACKUP_DIR, config.UPLOAD_DIR]) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -65,41 +84,119 @@ function normalise(data) {
   return out;
 }
 
-function load() {
-  if (cache) return cache;
+/* ------------------------------------------------------------------- file backend */
+
+function loadFromFile() {
   ensureDirs();
   if (fs.existsSync(config.DATA_FILE)) {
     try {
-      cache = normalise(JSON.parse(fs.readFileSync(config.DATA_FILE, 'utf8')));
+      return normalise(JSON.parse(fs.readFileSync(config.DATA_FILE, 'utf8')));
     } catch (err) {
       const broken = path.join(config.BACKUP_DIR, `corrupt-${Date.now()}.json`);
       fs.copyFileSync(config.DATA_FILE, broken);
       console.error(`[store] data file unreadable, moved to ${broken}:`, err.message);
-      cache = normalise(seed.initialData());
+      return normalise(seed.initialData());
     }
-  } else {
-    cache = normalise(seed.initialData());
-    writeNow(cache);
-    console.log('[store] seeded a fresh database at', config.DATA_FILE);
   }
-  return cache;
+  const fresh = normalise(seed.initialData());
+  writeFileNow(fresh);
+  console.log('[store] seeded a fresh database at', config.DATA_FILE);
+  return fresh;
 }
 
-function writeNow(data) {
+function writeFileNow(data) {
   ensureDirs();
   const tmp = `${config.DATA_FILE}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
   fs.renameSync(tmp, config.DATA_FILE);
 }
 
+/* --------------------------------------------------------------- postgres backend */
+
+async function loadFromDatabase() {
+  await database.withRetry(() => database.init());
+  const { rows } = await database.withRetry(() =>
+    database.query('SELECT rev, doc FROM ctp_state WHERE id = 1'));
+  if (rows.length) {
+    rev = Number(rows[0].rev);
+    return normalise(rows[0].doc);
+  }
+
+  const fresh = normalise(seed.initialData());
+  const inserted = await database.query(
+    `INSERT INTO ctp_state (id, rev, doc) VALUES (1, 1, $1)
+     ON CONFLICT (id) DO NOTHING
+     RETURNING rev`,
+    [JSON.stringify(fresh)]
+  );
+  if (inserted.rows.length) {
+    rev = 1;
+    console.log('[store] seeded a fresh database in Postgres');
+    return fresh;
+  }
+
+  // Another instance inserted first — adopt its copy instead of overwriting it.
+  const again = await database.query('SELECT rev, doc FROM ctp_state WHERE id = 1');
+  rev = Number(again.rows[0].rev);
+  return normalise(again.rows[0].doc);
+}
+
+/**
+ * Writes the document back, guarding against a second instance having written in between (which
+ * Render briefly produces while a new deploy overlaps the old one). On a clash the other instance's
+ * version is copied into ctp_backups before this one wins, so nothing is lost silently.
+ */
+async function writeDatabaseNow(data) {
+  const json = JSON.stringify(data);
+  const updated = await database.query(
+    'UPDATE ctp_state SET doc = $1, rev = rev + 1, updated_at = now() WHERE id = 1 AND rev = $2 RETURNING rev',
+    [json, rev]
+  );
+  if (updated.rows.length) {
+    rev = Number(updated.rows[0].rev);
+    return;
+  }
+
+  console.warn('[store] another instance wrote first — snapshotting it before overwriting.');
+  await database.query(
+    "INSERT INTO ctp_backups (label, doc) SELECT 'write-conflict', doc FROM ctp_state WHERE id = 1"
+  );
+  const forced = await database.query(
+    'UPDATE ctp_state SET doc = $1, rev = rev + 1, updated_at = now() WHERE id = 1 RETURNING rev',
+    [json]
+  );
+  rev = forced.rows.length ? Number(forced.rows[0].rev) : rev + 1;
+}
+
+/* -------------------------------------------------------------------- public API */
+
+/** Loads the database. Must be awaited before the HTTP server starts accepting requests. */
+async function init() {
+  if (initialised) return cache;
+  cache = usingDatabase() ? await loadFromDatabase() : loadFromFile();
+  initialised = true;
+  return cache;
+}
+
+function load() {
+  if (cache) return cache;
+  if (usingDatabase()) {
+    throw new Error('store.init() must be awaited before the database can be read.');
+  }
+  cache = loadFromFile();
+  initialised = true;
+  return cache;
+}
+
 /** Serialised, atomic persist. Returns a promise that settles once written. */
 function save() {
   dirty = true;
-  writeQueue = writeQueue.then(() => {
+  writeQueue = writeQueue.then(async () => {
     if (!dirty) return;
     dirty = false;
     try {
-      writeNow(cache);
+      if (usingDatabase()) await writeDatabaseNow(cache);
+      else writeFileNow(cache);
     } catch (err) {
       console.error('[store] write failed:', err.message);
     }
@@ -119,11 +216,20 @@ function update(mutator) {
   return result;
 }
 
-function backup(label) {
+/** Snapshot the current database. Returns a description of where the copy went. */
+async function backup(label) {
+  const data = load();
+  if (usingDatabase()) {
+    const { rows } = await database.query(
+      'INSERT INTO ctp_backups (label, doc) VALUES ($1, $2) RETURNING id',
+      [label || 'manual', JSON.stringify(data)]
+    );
+    return `ctp_backups#${rows[0].id}`;
+  }
   ensureDirs();
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const file = path.join(config.BACKUP_DIR, `ctp-${label || 'manual'}-${stamp}.json`);
-  fs.writeFileSync(file, JSON.stringify(load(), null, 2), 'utf8');
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
   return file;
 }
 
@@ -140,4 +246,37 @@ function logActivity(actor, action, detail) {
   save();
 }
 
-module.exports = { db, save, update, backup, logActivity, ensureDirs };
+/** Drops the stored database so the next start seeds a fresh one. Used by "npm run reset". */
+async function reset() {
+  const label = 'before-reset';
+  if (usingDatabase()) {
+    await database.init();
+    const { rows } = await database.query('SELECT doc FROM ctp_state WHERE id = 1');
+    if (!rows.length) return null;
+    const saved = await database.query(
+      'INSERT INTO ctp_backups (label, doc) VALUES ($1, $2) RETURNING id',
+      [label, rows[0].doc]
+    );
+    await database.query('DELETE FROM ctp_state WHERE id = 1');
+    await database.query('DELETE FROM ctp_blobs');
+    return `ctp_backups#${saved.rows[0].id}`;
+  }
+
+  if (!fs.existsSync(config.DATA_FILE)) return null;
+  ensureDirs();
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const target = path.join(config.BACKUP_DIR, `ctp-${label}-${stamp}.json`);
+  fs.copyFileSync(config.DATA_FILE, target);
+  fs.unlinkSync(config.DATA_FILE);
+  return target;
+}
+
+/** Describes the active backend for the start-up banner. */
+function describe() {
+  return usingDatabase() ? 'Postgres (DATABASE_URL)' : config.DATA_FILE;
+}
+
+module.exports = {
+  db, save, update, backup, logActivity, ensureDirs,
+  init, reset, describe, usingDatabase
+};
