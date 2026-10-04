@@ -6,6 +6,10 @@ distribution and public enrollment.
 
 Runs entirely on your machine. No build step, no database server, no cloud account.
 
+> 📄 **New here?** [`docs/CTP-Portal-How-It-Works.pdf`](docs/CTP-Portal-How-It-Works.pdf) is a
+> 7-page illustrated explainer, written for non-technical readers: how the code is organised,
+> where the data is stored, how the site was deployed, and why it costs ₹0 a month to run.
+
 ---
 
 ## Quick start
@@ -225,6 +229,9 @@ CTP-Zonal-Coordination/
 │                          account, dashboard, sessions, admin
 ├── data/                  ctp-data.json  (your live data)  + backups/
 ├── uploads/               certificate sheets and centre photos
+├── docs/
+│   ├── how-it-works.html  source of the illustrated explainer
+│   └── CTP-Portal-How-It-Works.pdf   the explainer itself (7 pages, A4)
 ├── render.yaml            Render blueprint (free plan + Postgres)
 ├── .env.example           every supported environment variable
 ├── .node-version          Node version pin for the host
