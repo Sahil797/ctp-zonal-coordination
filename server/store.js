@@ -81,6 +81,11 @@ function normalise(data) {
   }
   out.meta = Object.assign(base.meta, out.meta || {});
   out.settings = Object.assign(seed.defaultSettings(), out.settings || {});
+  // Repairs accounts seeded before the configured address was trimmed. Left alone, a stored
+  // address with stray whitespace can never be matched at sign-in.
+  out.users.forEach((u) => {
+    if (typeof u.email === 'string') u.email = u.email.trim().toLowerCase();
+  });
   migrateZones(out);
   return out;
 }

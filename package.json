@@ -9,7 +9,8 @@
     "start": "node server.js",
     "dev": "node --env-file-if-exists=.env --watch server.js",
     "local": "node --env-file-if-exists=.env server.js",
-    "reset": "node --env-file-if-exists=.env server/reset.js"
+    "reset": "node --env-file-if-exists=.env server/reset.js",
+    "set-admin-password": "node --env-file-if-exists=.env server/set-password.js"
   },
   "engines": {
     "node": ">=20.12"

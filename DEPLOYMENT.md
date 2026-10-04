@@ -85,7 +85,23 @@ See `.env.example` for the full list. The ones that matter in production:
 > It only ever applies **while the database is being seeded**. Once the admin account exists, the
 > stored password governs and `CTP_ADMIN_PASSWORD` is ignored, so editing it in the dashboard later
 > changes nothing — the startup banner will say the account already exists. To rotate it, sign in
-> and change it from **Account**; if it has been lost, reset the database or update the user row.
+> and change it from **Account**; if it has been lost, run the recovery command below.
+>
+> **Locked out?** Passwords are stored as salted scrypt hashes and cannot be read back, only
+> replaced. From a machine with `DATABASE_URL` set to the same database:
+>
+> ```bash
+> npm run set-admin-password            # prompts; nothing is echoed or kept in shell history
+> npm run set-admin-password -- you@org.org
+> ```
+>
+> It snapshots the database first, changes only that one account, and leaves centres, sessions and
+> uploads untouched. A hosted instance caches the database in memory, so **restart the service
+> afterwards** for the change to take effect.
+>
+> Take care pasting `CTP_ADMIN_EMAIL` into a hosting dashboard — a trailing space used to be stored
+> as part of the address, which made every sign-in attempt fail regardless of the password. The app
+> now trims it on seed, on load and on lookup.
 
 `PORT` is injected by the host automatically — do not set it yourself.
 

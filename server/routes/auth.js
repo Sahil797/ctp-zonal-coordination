@@ -8,8 +8,13 @@ const { wrap, fail, str, email, phone, now } = require('../util');
 
 const router = express.Router();
 
+/**
+ * Accounts seeded before the configured address was trimmed can carry stray whitespace, which an
+ * exact comparison would never match - locking the operator out whatever password they type. The
+ * submitted address arrives already trimmed and lowercased by email().
+ */
 function findUserByEmail(data, mail) {
-  return data.users.find((u) => u.email === mail);
+  return data.users.find((u) => String(u.email).trim().toLowerCase() === mail);
 }
 
 router.post('/register', wrap((req, res) => {

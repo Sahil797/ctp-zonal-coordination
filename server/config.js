@@ -39,8 +39,10 @@ module.exports = {
   MAX_UPLOAD_BYTES: 10 * 1024 * 1024,
   ALLOWED_UPLOAD_EXT: ['.xlsx', '.xls', '.csv', '.pdf'],
   DEFAULT_ADMIN: {
-    name: process.env.CTP_ADMIN_NAME || 'CTP National Administrator',
-    email: (process.env.CTP_ADMIN_EMAIL || 'admin@ctp.org').toLowerCase(),
+    name: (process.env.CTP_ADMIN_NAME || 'CTP National Administrator').trim(),
+    // Trimmed because these arrive from a hosting dashboard, where a trailing space survives a
+    // copy-paste unnoticed and would otherwise be stored verbatim as part of the address.
+    email: (process.env.CTP_ADMIN_EMAIL || 'admin@ctp.org').trim().toLowerCase(),
     password: adminPassword,
     generated: !process.env.CTP_ADMIN_PASSWORD && IS_PRODUCTION
   }
