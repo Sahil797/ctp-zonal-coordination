@@ -85,6 +85,8 @@ function banner() {
       console.log('  Save it now — sign in and change it. It is not shown again');
       console.log('  once the password has been changed.');
       console.log('  ──────────────────────────────────────────────────────────────');
+    } else if (config.IS_PRODUCTION) {
+      console.log(`  Admin seeded: ${config.DEFAULT_ADMIN.email}  (password taken from CTP_ADMIN_PASSWORD)`);
     } else {
       console.log(`  Default admin: ${config.DEFAULT_ADMIN.email} / ${config.DEFAULT_ADMIN.password}  (change it after first sign-in)`);
     }
