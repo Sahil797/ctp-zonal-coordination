@@ -6,12 +6,13 @@ const config = require('./config');
 const db = require('./db');
 
 /**
- * Storage for uploaded certificate sheets.
+ * Storage for uploaded files - certificate sheets and centre photographs.
  *
  * On a normal server the files live on disk. On a host with an ephemeral filesystem (Render's free
  * plan, Cloud Run, Vercel) anything written to disk disappears when the instance restarts, so the
- * bytes are kept in Postgres instead. Uploads are capped at 10 MB by multer, which is well within
- * what a bytea column handles comfortably.
+ * bytes are kept in Postgres instead. Uploads are capped by multer before they reach here (10 MB
+ * for a certificate sheet, 5 MB for a photo), which is well within what a bytea column handles
+ * comfortably.
  */
 
 const usingDatabase = () => db.isEnabled();
