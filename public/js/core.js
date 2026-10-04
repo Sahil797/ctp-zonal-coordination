@@ -207,6 +207,68 @@
   }
   CTP.noticeCard = noticeCard;
 
+  /* ---------------- photo gallery ---------------- */
+
+  /** Full-size viewer with keyboard paging; used by the public centre page. */
+  function photoLightbox(photos, startIndex) {
+    const list = photos || [];
+    if (!list.length) return null;
+    let index = Math.min(Math.max(0, startIndex || 0), list.length - 1);
+
+    const img = h('img', { class: 'lightbox-img', alt: '' });
+    const caption = h('p', { class: 'lightbox-caption' });
+    const counter = h('span', { class: 'small muted', style: { margin: '0 .5rem' } });
+
+    function show(next) {
+      index = (next + list.length) % list.length;
+      const p = list[index];
+      img.src = p.url;
+      img.alt = p.caption || 'Centre photograph';
+      caption.textContent = p.caption || '';
+      caption.style.display = p.caption ? '' : 'none';
+      counter.textContent = `${index + 1} of ${list.length}`;
+    }
+
+    const actions = [];
+    if (list.length > 1) {
+      actions.push(h('button', { class: 'btn', onClick: () => show(index - 1) }, '← Previous'));
+      actions.push(counter);
+      actions.push(h('button', { class: 'btn', onClick: () => show(index + 1) }, 'Next →'));
+    }
+    actions.push(h('button', { class: 'btn btn-ghost', onClick: closeModal }, 'Close'));
+
+    const m = modal({ title: 'Centre photos', body: h('div', { class: 'lightbox' }, img, caption), actions });
+    show(index);
+
+    const onKey = (e) => {
+      if (!document.getElementById('modal-root').contains(img)) {
+        document.removeEventListener('keydown', onKey);
+        return;
+      }
+      if (e.key === 'ArrowRight') show(index + 1);
+      if (e.key === 'ArrowLeft') show(index - 1);
+    };
+    document.addEventListener('keydown', onKey);
+    return m;
+  }
+
+  function photoGallery(photos, opts) {
+    const list = photos || [];
+    const o = opts || {};
+    if (!list.length) return null;
+    return h('div', { class: 'gallery' }, ...list.map((p, i) => h('button', {
+      class: 'gallery-item',
+      type: 'button',
+      title: p.caption || 'View full size',
+      onClick: () => photoLightbox(list, i)
+    },
+      h('img', { src: p.url, alt: p.caption || o.alt || 'Centre photograph', loading: 'lazy' }),
+      p.caption ? h('span', { class: 'gallery-cap' }, p.caption) : null)));
+  }
+
+  CTP.photoGallery = photoGallery;
+  CTP.photoLightbox = photoLightbox;
+
   function field(label, control, hint) {
     return h('label', { class: 'field' },
       h('span', { style: { fontSize: '.8rem', fontWeight: '700', color: 'var(--text-muted)' } }, label),

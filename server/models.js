@@ -1,6 +1,7 @@
 'use strict';
 const { str, num, int, bool, oneOf, email, phone, dateOnly, person, id, now } = require('./util');
 const geo = require('./geo');
+const config = require('./config');
 
 const CENTRE_MODES = ['onsite', 'online', 'hybrid'];
 const CENTRE_STATUS = ['active', 'paused', 'closed'];
@@ -12,6 +13,31 @@ function centreCode(name, state) {
   const a = str(name).replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'CTP';
   const b = str(state).replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'IN';
   return `${b}-${a}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
+/**
+ * Photographs arrive through a dedicated upload endpoint, never through a centre save. A save may
+ * therefore only re-caption and reorder records that already exist: anything the client sends that
+ * does not match a stored id is discarded, so a crafted payload cannot point a centre at bytes
+ * belonging to somebody else. The first entry is treated as the cover image.
+ */
+function normalisePhotos(input, basePhotos) {
+  const stored = Array.isArray(basePhotos) ? basePhotos : [];
+  if (!Array.isArray(input)) return stored.slice(0, config.MAX_CENTRE_PHOTOS);
+
+  const byId = new Map(stored.map((p) => [p.id, p]));
+  const ordered = [];
+  const seen = new Set();
+  input.forEach((p) => {
+    const match = p && typeof p === 'object' ? byId.get(str(p.id)) : null;
+    if (!match || seen.has(match.id)) return;
+    seen.add(match.id);
+    ordered.push(Object.assign({}, match, { caption: str(p.caption, 160) }));
+  });
+  // Keep anything the client never saw - a photo uploaded from another tab while this form was
+  // open would otherwise be silently dropped on save.
+  stored.forEach((p) => { if (!seen.has(p.id)) ordered.push(p); });
+  return ordered.slice(0, config.MAX_CENTRE_PHOTOS);
 }
 
 function normaliseCentre(input, existing) {
@@ -90,6 +116,7 @@ function normaliseCentre(input, existing) {
     notes: str(src.notes !== undefined ? src.notes : base.notes, 1500),
     contacts,
     volunteers,
+    photos: normalisePhotos(src.photos, base.photos),
     ownerUserId: base.ownerUserId || str(src.ownerUserId) || null,
     createdAt: base.createdAt || now(),
     updatedAt: now()
@@ -266,6 +293,16 @@ function normaliseNotice(input, existing, author) {
 function publicCentre(centre, opts) {
   const o = opts || {};
   const point = geo.resolvePoint(centre);
+  // Photographs are promotional, so they stay visible to anonymous visitors even when contact
+  // details are masked. Bytes are served from a route, never embedded in the payload.
+  const photos = (centre.photos || []).map((p, index) => ({
+    id: p.id,
+    caption: p.caption || '',
+    cover: index === 0,
+    size: p.size || 0,
+    uploadedAt: p.uploadedAt || '',
+    url: `/api/centres/${centre.id}/photos/${p.id}`
+  }));
   const base = {
     id: centre.id,
     code: centre.code,
@@ -282,6 +319,9 @@ function publicCentre(centre, opts) {
     facilities: centre.facilities,
     offersOnline: centre.offersOnline,
     onlineProgramIds: centre.onlineProgramIds,
+    photos,
+    photoCount: photos.length,
+    coverPhotoUrl: photos.length ? photos[0].url : '',
     volunteerCount: (centre.volunteers || []).length,
     createdAt: centre.createdAt,
     updatedAt: centre.updatedAt
@@ -314,5 +354,5 @@ module.exports = {
   CENTRE_MODES, CENTRE_STATUS, SESSION_STATUS, ENROLL_STATUS, NOTICE_LEVELS,
   normaliseCentre, normaliseSession, normaliseReflection, emptyReflection,
   normaliseProgram, normaliseNotice, publicCentre, centreCode, colour,
-  normaliseZoneRecord, publicZone
+  normaliseZoneRecord, publicZone, normalisePhotos
 };

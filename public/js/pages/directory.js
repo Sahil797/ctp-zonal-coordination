@@ -58,8 +58,13 @@
 
     const rows = items.map((c) => h('tr', null,
       h('td', null,
-        h('a', { href: `#/centres/${c.id}`, style: { fontWeight: '700' } }, c.name),
-        h('div', { class: 'tiny muted mono' }, c.code)),
+        h('div', { class: 'centre-cell' },
+          c.coverPhotoUrl
+            ? h('img', { class: 'centre-avatar', src: c.coverPhotoUrl, alt: '', loading: 'lazy' })
+            : h('span', { class: 'centre-avatar is-empty' }, '🏫'),
+          h('div', null,
+            h('a', { href: `#/centres/${c.id}`, style: { fontWeight: '700' } }, c.name),
+            h('div', { class: 'tiny muted mono' }, c.code)))),
       h('td', null, c.address.city || '—', h('div', { class: 'tiny muted' }, c.address.state || '')),
       h('td', null, c.zone || h('span', { class: 'muted' }, '⚠ unassigned'),
         c.zone ? h('div', { class: 'tiny muted' }, CTP.zoneDescription(c.zone)) : null),
@@ -135,6 +140,12 @@
 
       h('div', { class: 'split' },
         h('div', { class: 'grid' },
+          (c.photos || []).length
+            ? h('div', { class: 'card' },
+              h('h3', null, `📷 Photos (${c.photos.length})`),
+              CTP.photoGallery(c.photos, { alt: `Photograph of ${c.name}` }))
+            : null,
+
           h('div', { class: 'card' },
             h('h3', null, '📍 Location & schedule'),
             h('dl', { class: 'dl' },

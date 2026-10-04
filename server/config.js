@@ -38,6 +38,11 @@ module.exports = {
     : IS_PRODUCTION,
   MAX_UPLOAD_BYTES: 10 * 1024 * 1024,
   ALLOWED_UPLOAD_EXT: ['.xlsx', '.xls', '.csv', '.pdf'],
+  // Centre photographs are a separate upload path: pictures only, a tighter size cap than the
+  // certificate sheets, and a hard limit per centre so the directory stays quick to browse.
+  MAX_PHOTO_BYTES: 5 * 1024 * 1024,
+  MAX_CENTRE_PHOTOS: 5,
+  ALLOWED_PHOTO_EXT: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
   DEFAULT_ADMIN: {
     name: (process.env.CTP_ADMIN_NAME || 'CTP National Administrator').trim(),
     // Trimmed because these arrive from a hosting dashboard, where a trailing space survives a

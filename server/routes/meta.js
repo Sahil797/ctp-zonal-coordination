@@ -3,6 +3,7 @@ const express = require('express');
 const store = require('../store');
 const geo = require('../geo');
 const models = require('../models');
+const config = require('../config');
 const { wrap } = require('../util');
 
 const router = express.Router();
@@ -39,7 +40,10 @@ router.get('/meta', wrap((req, res) => {
     centreStatuses: models.CENTRE_STATUS,
     sessionStatuses: models.SESSION_STATUS,
     enrollmentStatuses: models.ENROLL_STATUS,
-    noticeLevels: models.NOTICE_LEVELS
+    noticeLevels: models.NOTICE_LEVELS,
+    maxCentrePhotos: config.MAX_CENTRE_PHOTOS,
+    photoExtensions: config.ALLOWED_PHOTO_EXT,
+    maxPhotoBytes: config.MAX_PHOTO_BYTES
   });
 }));
 

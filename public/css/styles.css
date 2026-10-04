@@ -403,9 +403,11 @@ td.actions { white-space: nowrap; text-align: right; }
 .empty .big { font-size: 2rem; display: block; margin-bottom: .4rem; }
 
 /* ---------- Modal ---------- */
+/* Above Leaflet, whose own panes and controls reach z-index 800 - without this a dialog opened on
+   a page with a map is partly painted over by the map tiles and zoom controls. */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(15,23,42,.55); backdrop-filter: blur(2px);
-  display: flex; align-items: flex-start; justify-content: center; padding: 4vh 1rem; z-index: 200; overflow-y: auto;
+  display: flex; align-items: flex-start; justify-content: center; padding: 4vh 1rem; z-index: 2000; overflow-y: auto;
 }
 .modal {
   background: var(--bg-elev); border-radius: var(--radius); box-shadow: var(--shadow-lg);
@@ -419,7 +421,7 @@ td.actions { white-space: nowrap; text-align: right; }
 .modal-foot { padding: .9rem 1.2rem; border-top: 1px solid var(--border); display: flex; gap: .6rem; justify-content: flex-end; flex-wrap: wrap; }
 
 /* ---------- Toasts ---------- */
-.toasts { position: fixed; right: 1rem; bottom: 1rem; z-index: 300; display: flex; flex-direction: column; gap: .5rem; max-width: 380px; }
+.toasts { position: fixed; right: 1rem; bottom: 1rem; z-index: 2200; display: flex; flex-direction: column; gap: .5rem; max-width: 380px; }
 .toast {
   background: var(--bg-elev); border: 1px solid var(--border); border-left: 4px solid var(--accent);
   border-radius: var(--radius-sm); padding: .7rem .9rem; box-shadow: var(--shadow-lg); font-size: .88rem;
@@ -447,6 +449,46 @@ td.actions { white-space: nowrap; text-align: right; }
 .person-card .role { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 800; }
 .person-card .name { font-weight: 700; }
 .person-card .meta { font-size: .8rem; color: var(--text-muted); }
+
+/* ---------- Centre photographs ---------- */
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .8rem; }
+.photo-card { margin: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-sunken); }
+.photo-card.is-cover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+.photo-thumb { position: relative; aspect-ratio: 4 / 3; background: var(--bg-sunken); }
+.photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-flag {
+  position: absolute; left: .4rem; top: .4rem; background: var(--accent); color: #fff;
+  font-size: .68rem; font-weight: 800; letter-spacing: .04em; padding: .12rem .4rem; border-radius: 999px;
+}
+.photo-card figcaption { padding: .5rem; display: flex; flex-direction: column; gap: .4rem; }
+.photo-card figcaption input { width: 100%; font-size: .82rem; }
+.photo-actions { display: flex; gap: .3rem; flex-wrap: wrap; }
+.photo-actions .danger { color: var(--danger); }
+
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .6rem; }
+.gallery-item {
+  position: relative; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; background: var(--bg-sunken); cursor: zoom-in; aspect-ratio: 4 / 3;
+}
+.gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s ease; }
+.gallery-item:hover img, .gallery-item:focus-visible img { transform: scale(1.06); }
+.gallery-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gallery-cap {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: .9rem .5rem .35rem;
+  background: linear-gradient(to top, rgba(0, 0, 0, .78), transparent);
+  color: #fff; font-size: .74rem; text-align: left; line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.lightbox { display: flex; flex-direction: column; align-items: center; gap: .6rem; }
+.lightbox-img { max-width: 100%; max-height: 68vh; border-radius: var(--radius-sm); display: block; }
+.lightbox-caption { margin: 0; text-align: center; color: var(--text-muted); font-size: .88rem; }
+
+.centre-cell { display: flex; align-items: center; gap: .6rem; }
+.centre-avatar {
+  width: 40px; height: 40px; border-radius: var(--radius-sm); object-fit: cover; flex: 0 0 auto;
+  border: 1px solid var(--border); background: var(--bg-sunken);
+}
+.centre-avatar.is-empty { display: grid; place-items: center; font-size: 1.05rem; opacity: .55; }
 
 /* ---------- Footer ---------- */
 .site-footer { border-top: 1px solid var(--border); background: var(--bg-elev); margin-top: 2rem; }

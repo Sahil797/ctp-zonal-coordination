@@ -272,6 +272,112 @@ $badUpload = Invoke-WebRequest -Uri "$BaseUrl/api/sessions/$sessionId/reflection
   -WebSession $coord -Form @{ file = Get-Item $blockedExt } -SkipHttpErrorCheck
 Assert "Disallowed file type rejected" ($badUpload.StatusCode -ge 400)
 
+# ------------------------------------------------------------------ 12b
+Write-Section "Centre photographs"
+# A genuine 1x1 PNG. The server sniffs magic bytes rather than trusting the name, so the
+# content has to be a real image for the happy path to work at all.
+$pngBytes = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+$photoFiles = @(1..6 | ForEach-Object {
+  $p = Join-Path $env:TEMP "ctp-smoke-photo-$_.png"
+  [IO.File]::WriteAllBytes($p, $pngBytes)
+  $p
+})
+$fakePng = Join-Path $env:TEMP "ctp-smoke-fake.png"
+[IO.File]::WriteAllText($fakePng, "<html>definitely not an image</html>")
+
+function Send-Photo {
+  param([string]$Path, $Session, [string]$Caption = "", [string]$Centre = $centreId)
+  $form = @{ photo = Get-Item $Path }
+  if ($Caption) { $form.caption = $Caption }
+  Invoke-WebRequest -Uri "$BaseUrl/api/centres/$Centre/photos" -Method POST -WebSession $Session -Form $form -SkipHttpErrorCheck
+}
+
+# Checked while the centre is still empty, so a rejection here can only come from the signature
+# check and not from the per-centre cap.
+$fakeRes = Send-Photo -Path $fakePng -Session $coord
+Assert "Non-image rejected on its signature, not its name" ($fakeRes.StatusCode -eq 400) "status $($fakeRes.StatusCode)"
+
+$photoIds = @()
+foreach ($i in 0..4) {
+  $r = Send-Photo -Path $photoFiles[$i] -Session $coord -Caption "Smoke photo $($i + 1)"
+  if ($r.StatusCode -eq 201) { $photoIds += ($r.Content | ConvertFrom-Json).photo.id }
+}
+Assert "Five photos uploaded" ($photoIds.Count -eq 5) "got $($photoIds.Count)"
+
+$sixth = Send-Photo -Path $photoFiles[5] -Session $coord
+Assert "Sixth photo refused at the limit" ($sixth.StatusCode -eq 400) "status $($sixth.StatusCode)"
+
+$anonUpload = Send-Photo -Path $photoFiles[5] -Session ([Microsoft.PowerShell.Commands.WebRequestSession]::new())
+Assert "Anonymous visitors cannot upload photos" ($anonUpload.StatusCode -eq 401) "status $($anonUpload.StatusCode)"
+if ($zone1Centre) {
+  $foreignUpload = Send-Photo -Path $photoFiles[5] -Session $coord -Centre $zone1Centre.id
+  Assert "Coordinator cannot add photos to another centre" ($foreignUpload.StatusCode -eq 403) "status $($foreignUpload.StatusCode)"
+}
+
+$photoBytes = Invoke-WebRequest -Uri "$BaseUrl/api/centres/$centreId/photos/$($photoIds[0])" -SkipHttpErrorCheck
+Assert "Photo is served to anonymous visitors" ($photoBytes.StatusCode -eq 200) "status $($photoBytes.StatusCode)"
+Assert "Photo is served as an image" ((@($photoBytes.Headers["Content-Type"]) -join ",") -like "image/*")
+Assert "Photo carries a nosniff header" ((@($photoBytes.Headers["X-Content-Type-Options"]) -join ",") -eq "nosniff")
+$missingPhoto = Invoke-WebRequest -Uri "$BaseUrl/api/centres/$centreId/photos/pho_doesnotexist" -SkipHttpErrorCheck
+Assert "Unknown photo id returns 404" ($missingPhoto.StatusCode -eq 404)
+
+$anonCentre = Api -Path "/api/centres/$centreId"
+Assert "Public centre exposes its photos" ($anonCentre.centre.photos.Count -eq 5) "got $($anonCentre.centre.photos.Count)"
+Assert "Public centre reports a photo count" ($anonCentre.centre.photoCount -eq 5)
+Assert "Public centre exposes a cover photo" ($anonCentre.centre.coverPhotoUrl -like "/api/centres/$centreId/photos/*")
+Assert "First photo is the cover" ($anonCentre.centre.coverPhotoUrl -like "*$($photoIds[0])")
+Assert "Photo captions are published" ($anonCentre.centre.photos[0].caption -eq "Smoke photo 1")
+Assert "Stored file names are never published" (($anonCentre.centre.photos | Where-Object { $_.PSObject.Properties.Name -contains "storedName" }).Count -eq 0)
+Assert "Uploader address is never published" (($anonCentre.centre.photos | Where-Object { $_.PSObject.Properties.Name -contains "uploadedBy" }).Count -eq 0)
+
+# Captions and cover order travel back through the ordinary centre save, so a crafted payload
+# must not be able to mint a photo or repoint one at another centre's bytes.
+$reordered = Api -Path "/api/centres/$centreId" -Method PUT -Session $coord -Body @{
+  photos = @(
+    @{ id = $photoIds[2]; caption = "Now the cover" },
+    @{ id = $photoIds[0]; caption = "Demoted" },
+    @{ id = $photoIds[1] }, @{ id = $photoIds[3] }, @{ id = $photoIds[4] }
+  )
+}
+Assert "Photos survive a centre save" ($reordered.centre.photos.Count -eq 5)
+Assert "Cover can be reordered" ($reordered.centre.coverPhotoUrl -like "*$($photoIds[2])")
+Assert "Captions can be edited" ($reordered.centre.photos[0].caption -eq "Now the cover")
+
+$forged = Api -Path "/api/centres/$centreId" -Method PUT -Session $coord -Body @{
+  photos = @(
+    @{ id = $photoIds[2] },
+    @{ id = "pho_forged"; caption = "Stolen"; storedName = "../../data/ctp-data.json"; size = 99 }
+  )
+}
+Assert "Forged photo entries are discarded" ($forged.centre.photos.Count -eq 5) "got $($forged.centre.photos.Count)"
+Assert "No forged id reaches the centre" (($forged.centre.photos | Where-Object { $_.id -eq "pho_forged" }).Count -eq 0)
+
+$untouched = Api -Path "/api/centres/$centreId" -Method PUT -Session $coord -Body @{ notes = "Photo smoke note." }
+Assert "Omitting photos on save keeps them" ($untouched.centre.photos.Count -eq 5) "got $($untouched.centre.photos.Count)"
+
+$removed = Invoke-WebRequest -Uri "$BaseUrl/api/centres/$centreId/photos/$($photoIds[4])" -Method DELETE -WebSession $coord -SkipHttpErrorCheck
+Assert "Photo deleted" ($removed.StatusCode -eq 200) "status $($removed.StatusCode)"
+Assert "Centre is down to four photos" ((($removed.Content | ConvertFrom-Json).centre.photos.Count) -eq 4)
+$goneBytes = Invoke-WebRequest -Uri "$BaseUrl/api/centres/$centreId/photos/$($photoIds[4])" -SkipHttpErrorCheck
+Assert "Deleted photo is no longer served" ($goneBytes.StatusCode -eq 404)
+
+# Deleting a centre has to take its pictures with it, otherwise the blob store leaks.
+$throwaway = Api -Path "/api/centres" -Method POST -Session $admin -Body @{
+  name = "Photo Purge Centre $stamp"; address = @{ city = "Indore"; state = "Madhya Pradesh" }
+  coordinator = @{ name = "Purge Coordinator"; phone = "+91 9000000111" }
+}
+$throwawayId = $throwaway.centre.id
+$purgePhoto = (Send-Photo -Path $photoFiles[5] -Session $admin -Centre $throwawayId).Content | ConvertFrom-Json
+Assert "Photo attached to the throwaway centre" ($purgePhoto.photo.id -like "pho_*")
+$purgeDelete = Api -Path "/api/centres/$throwawayId" -Method DELETE -Session $admin -Raw
+Assert "Throwaway centre deleted" ($purgeDelete.StatusCode -eq 200) "status $($purgeDelete.StatusCode)"
+$purgedBytes = Invoke-WebRequest -Uri "$BaseUrl/api/centres/$throwawayId/photos/$($purgePhoto.photo.id)" -SkipHttpErrorCheck
+Assert "Photos of a deleted centre are unreachable" ($purgedBytes.StatusCode -eq 404)
+
+$photoMeta = Api -Path "/api/meta"
+Assert "Photo limit published in metadata" ($photoMeta.maxCentrePhotos -eq 5)
+Assert "Photo extensions published in metadata" ($photoMeta.photoExtensions -contains ".png")
+
 # ------------------------------------------------------------------ 13
 Write-Section "Public enrollment returns the centre contact card"
 $enroll = Api -Path "/api/enrollments" -Method POST -Body @{
@@ -392,7 +498,8 @@ foreach ($asset in @("/", "/css/styles.css", "/js/core.js", "/js/zones.js", "/js
 }
 
 # ------------------------------------------------------------------ Summary
-Remove-Item $csvPath, $blockedExt -ErrorAction SilentlyContinue
+Remove-Item $csvPath, $blockedExt, $fakePng -ErrorAction SilentlyContinue
+Remove-Item $photoFiles -ErrorAction SilentlyContinue
 Write-Host ""
 Write-Host ("=" * 60)
 Write-Host ("  Passed: {0}    Failed: {1}" -f $script:Pass, $script:Fail) -ForegroundColor $(if ($script:Fail -eq 0) { "Green" } else { "Red" })

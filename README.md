@@ -76,11 +76,24 @@ Each centre records:
   with name, email and phone
 - A **primary contact** phone/email for the public
 - An unlimited **volunteer** roster (name, role, phone, email)
+- **Up to 5 photographs** of the centre (see below)
 - Which online programs the centre promotes
 
 Public visitors see the centre, its address and the coordinator's *name*. Phone numbers, emails and
 the volunteer roster stay private unless the admin enables
 **Settings → Show contact details publicly**.
+
+**Centre photographs.** The centre form carries a photo panel where a coordinator (or an admin) can
+upload **up to 5 pictures** — `.jpg`, `.jpeg`, `.png`, `.webp` or `.gif`, max 5 MB each. Every photo
+takes an optional caption, any photo can be promoted to **cover** with one click, and the cover is
+what appears as the thumbnail beside the centre in the directory. On the centre's public page the
+pictures render as a gallery that opens into a full-size lightbox with keyboard paging.
+
+Uploads are validated by **file signature**, not by file name, so a renamed document cannot be
+stored and served back as an image. Photos can only be created through the upload endpoint —
+captions and cover order travel with an ordinary centre save, but a payload that invents a photo id
+is discarded, and the on-disk file name is never published. Deleting a photo, or the whole centre,
+removes the stored bytes too.
 
 ### 5. The 12 national zones
 Every centre belongs to one of the **12 numbered CTP zones**:
@@ -211,22 +224,22 @@ CTP-Zonal-Coordination/
 │       └── pages/         home, directory, programs, enroll,
 │                          account, dashboard, sessions, admin
 ├── data/                  ctp-data.json  (your live data)  + backups/
-├── uploads/               certificate sheets
+├── uploads/               certificate sheets and centre photos
 ├── render.yaml            Render blueprint (free plan + Postgres)
 ├── .env.example           every supported environment variable
 ├── .node-version          Node version pin for the host
 ├── DEPLOYMENT.md          free / Azure / Render / Google Sites hosting guide
 ├── LICENSE                MIT
-└── smoke-test.ps1         123-assertion end-to-end test
+└── smoke-test.ps1         153-assertion end-to-end test
 ```
 
 ---
 
 ## Data, backup and reset
 
-By default everything lives in **`data/ctp-data.json`**, and uploaded certificate sheets live in
-**`uploads/`**. Writes are atomic (temp file + rename) and serialised, so the file is never left
-half-written.
+By default everything lives in **`data/ctp-data.json`**, and uploaded certificate sheets and centre
+photos live in **`uploads/`**. Writes are atomic (temp file + rename) and serialised, so the file is
+never left half-written.
 
 Set **`DATABASE_URL`** and the same data moves into Postgres instead — `ctp_state` holds the
 document, `ctp_blobs` the uploaded files, `ctp_backups` the snapshots. Nothing else changes; the
@@ -249,11 +262,11 @@ the app always starts.
 .\smoke-test.ps1
 ```
 
-Starts nothing — run it while `npm start` is running. It exercises 123 assertions across health,
+Starts nothing — run it while `npm start` is running. It exercises 153 assertions across health,
 auth, approval flow, centre editing, permission scoping, the 12-zone model, HQ zone coordinators and
 manual zone assignment, the full session lifecycle, reflection gating, certificate
-upload/parse/download, public enrollment, program buttons, announcements, CSV exports, settings and
-sign-out.
+upload/parse/download, centre photo upload/limits/signature checks/ownership/cleanup, public
+enrollment, program buttons, announcements, CSV exports, settings and sign-out.
 
 ---
 
@@ -276,8 +289,8 @@ Short version:
   | Persistent disk (Azure `/home`, a Render disk, your own server) | `CTP_DATA_DIR` + `CTP_UPLOAD_DIR` |
   | **Ephemeral** (Render free, Cloud Run, Vercel) | **`DATABASE_URL`** — required, or every restart resets the portal |
 
-  With `DATABASE_URL` set, the directory, logins *and* uploaded certificate sheets all live in
-  Postgres; the app creates its own tables on first boot.
+  With `DATABASE_URL` set, the directory, logins *and* uploaded files — certificate sheets and
+  centre photos alike — all live in Postgres; the app creates its own tables on first boot.
 - Also set `NODE_ENV=production` and `CTP_ADMIN_PASSWORD`. See [`.env.example`](.env.example) for
   every variable, and use `npm run local` to load a `.env` file while testing.
 - `PORT` is injected by the host and takes precedence over `CTP_PORT`; in production the app binds

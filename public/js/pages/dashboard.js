@@ -17,6 +17,8 @@
     const location = c.location || {};
     const contacts = c.contacts || {};
     const volunteers = JSON.parse(JSON.stringify(c.volunteers || []));
+    const photos = JSON.parse(JSON.stringify(c.photos || []));
+    const maxPhotos = meta.maxCentrePhotos || 5;
     const programs = opts.programs || [];
     const isAdmin = CTP.state.user && CTP.state.user.role === 'admin';
 
@@ -42,6 +44,108 @@
       });
     }
     drawVolunteers();
+
+    /* -------------------------------------------------- centre photographs */
+
+    const photoGrid = h('div', { class: 'photo-grid' });
+    const photoStatus = h('p', { class: 'small muted', style: { margin: '0' } });
+    const photoInput = h('input', {
+      type: 'file',
+      accept: (meta.photoExtensions || ['.jpg', '.jpeg', '.png', '.webp', '.gif']).join(','),
+      multiple: true
+    });
+    const photoButton = h('button', { class: 'btn btn-primary btn-sm', type: 'button' }, '⬆ Upload photos');
+
+    function drawPhotos() {
+      CTP.clear(photoGrid);
+      photos.forEach((p, index) => {
+        photoGrid.append(h('figure', { class: `photo-card${index === 0 ? ' is-cover' : ''}` },
+          h('div', { class: 'photo-thumb' },
+            h('img', { src: p.url, alt: p.caption || `Photo of ${c.name || 'the centre'}`, loading: 'lazy' }),
+            index === 0 ? h('span', { class: 'photo-flag' }, '★ Cover') : null),
+          h('figcaption', null,
+            h('input', {
+              value: p.caption || '',
+              maxlength: '160',
+              placeholder: 'Caption (optional)',
+              onInput: (e) => { p.caption = e.target.value; }
+            }),
+            h('div', { class: 'photo-actions' },
+              index === 0 ? null : h('button', {
+                class: 'btn btn-sm btn-ghost', type: 'button', title: 'Use as the cover image',
+                onClick: () => { photos.unshift(photos.splice(index, 1)[0]); drawPhotos(); }
+              }, '★ Cover'),
+              h('button', {
+                class: 'btn btn-sm btn-ghost danger', type: 'button', title: 'Remove this photo',
+                onClick: async () => {
+                  if (!(await CTP.confirm('Remove this photo? This cannot be undone.', 'Remove'))) return;
+                  try {
+                    await CTP.del(`/api/centres/${c.id}/photos/${p.id}`);
+                    photos.splice(index, 1);
+                    drawPhotos();
+                    CTP.toast('Photo removed.', 'ok');
+                  } catch (err) { CTP.notifyError(err); }
+                }
+              }, '✕ Remove')))));
+      });
+      const left = maxPhotos - photos.length;
+      if (!photos.length) {
+        photoGrid.append(h('p', { class: 'small muted' },
+          'No photos yet. Add up to ' + maxPhotos + ' pictures of the centre — the room, the lab, a session in progress.'));
+      }
+      photoStatus.textContent = `${photos.length} of ${maxPhotos} photos used.` + (left > 0 ? ` You can add ${left} more.` : ' Remove one to add another.');
+      photoInput.disabled = left <= 0;
+      photoButton.disabled = left <= 0;
+    }
+
+    async function uploadPhotos() {
+      const chosen = Array.from(photoInput.files || []);
+      if (!chosen.length) { CTP.toast('Choose one or more photos first.', 'warn'); return; }
+      const room = maxPhotos - photos.length;
+      if (chosen.length > room) {
+        CTP.toast(`Only ${room} more photo${room === 1 ? '' : 's'} can be added.`, 'warn');
+        return;
+      }
+      photoButton.disabled = true;
+      photoInput.disabled = true;
+      let added = 0;
+      try {
+        // Uploaded one at a time so a single rejected file does not discard the rest.
+        for (const file of chosen) {
+          const fd = new FormData();
+          fd.append('photo', file);
+          try {
+            const res = await CTP.api(`/api/centres/${c.id}/photos`, { method: 'POST', body: fd });
+            photos.push(res.photo);
+            added += 1;
+            drawPhotos();
+          } catch (err) {
+            CTP.toast(`${file.name}: ${err.message}`, 'error', 6000);
+          }
+        }
+        photoInput.value = '';
+        if (added) CTP.toast(`${added} photo${added === 1 ? '' : 's'} uploaded.`, 'ok');
+      } finally {
+        drawPhotos();
+      }
+    }
+    photoButton.addEventListener('click', uploadPhotos);
+    drawPhotos();
+
+    const photoFieldset = h('fieldset', null,
+      h('legend', null, 'Centre photos'),
+      c.id
+        ? h('div', null,
+          photoGrid,
+          h('div', { class: 'row', style: { marginTop: '.7rem', alignItems: 'center' } },
+            photoInput, photoButton),
+          h('div', { style: { marginTop: '.4rem' } }, photoStatus),
+          h('p', { class: 'tiny muted', style: { marginTop: '.3rem', marginBottom: 0 } },
+            `Accepted: ${(meta.photoExtensions || []).join(', ') || 'JPG, PNG, WEBP, GIF'} — up to `
+            + `${Math.round((meta.maxPhotoBytes || 5242880) / 1048576)} MB each. The first photo is used as the cover `
+            + 'in the directory. Captions and the cover order are saved with the form below.'))
+        : h('p', { class: 'small muted', style: { margin: 0 } },
+          'Save the centre first — photo uploads need a saved centre to attach to.'));
 
     function personFields(prefix, label) {
       const p = contacts[prefix] || {};
@@ -79,6 +183,9 @@
         const payload = CTP.expand(flat);
         payload.onlineProgramIds = onlineProgramIds;
         payload.volunteers = volunteers.filter((v) => (v.name || '').trim());
+        // Only ids and captions travel: the server keeps the stored file details and uses the
+        // order given here, so dragging a photo to the front makes it the cover.
+        payload.photos = photos.map((p) => ({ id: p.id, caption: p.caption || '' }));
         payload.facilities = String(flat.facilitiesText || '')
           .split(',').map((x) => x.trim()).filter(Boolean);
         delete payload.facilitiesText;
@@ -139,6 +246,8 @@
           class: 'btn btn-sm', type: 'button', style: { marginTop: '.6rem' },
           onClick: () => { volunteers.push({ name: '', role: 'Volunteer', phone: '', email: '' }); drawVolunteers(); }
         }, '＋ Add volunteer')),
+
+      photoFieldset,
 
       h('fieldset', null,
         h('legend', null, 'Online services offered from this centre'),
